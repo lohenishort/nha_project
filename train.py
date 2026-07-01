@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from data_utils import make_recall_batch
-from nha_core import TinyNHAModel, nha_layer_recurrent_ablate_slots
+from nha_core import TinyNHAModel
 
 def main():
     # Setup seed
@@ -15,8 +15,8 @@ def main():
     key_val_gap = 24
     seq_len = key_val_gap + 6
 
-    print("--- Training Main Model (Window = 8) ---")
-    model = TinyNHAModel(vocab_total, d_model, d_head, m, window, max_seq_len=seq_len)
+    print("--- Training Main Model (Window = 8, 2 Layers) ---")
+    model = TinyNHAModel(vocab_total, d_model, d_head, m, window, max_seq_len=seq_len, num_layers=2)
     opt = torch.optim.Adam(model.parameters(), lr=3e-3)
 
     for step in range(301):
@@ -37,8 +37,8 @@ def main():
             acc = (pred_logits.argmax(dim=-1) == target_val).float().mean().item()
             print(f"step {step:3d}  loss {loss.item():.4f}  acc {acc:.2f}")
 
-    print("\n--- Training Window=0 Model (Baseline) ---")
-    model_w0 = TinyNHAModel(vocab_total, d_model, d_head, m, window=0, max_seq_len=seq_len)
+    print("\n--- Training Window=0 Model (Baseline, 2 Layers) ---")
+    model_w0 = TinyNHAModel(vocab_total, d_model, d_head, m, window=0, max_seq_len=seq_len, num_layers=2)
     opt_w0 = torch.optim.Adam(model_w0.parameters(), lr=3e-3)
     
     for step in range(301):
@@ -64,16 +64,7 @@ def main():
         x, target_pos, target_val = make_recall_batch(
             batch_size=32, seq_len=seq_len, vocab_size=vocab_size, key_val_gap=key_val_gap
         )
-        logits_batch = []
-        for b in range(x.shape[0]):
-            x_seq = model.embed(x[b])
-            h = nha_layer_recurrent_ablate_slots(
-                x_seq, model.W_q, model.W_k, model.W_v, model.W_alpha, 
-                m, window, model.cos[:seq_len], model.sin[:seq_len]
-            )
-            logits_batch.append(model.out_head(h))
-            
-        logits = torch.stack(logits_batch, dim=0)
+        logits = model(x, force_ablate_slots=True)
         batch_idx = torch.arange(x.shape[0])
         pred_logits = logits[batch_idx, target_pos]
         acc = (pred_logits.argmax(dim=-1) == target_val).float().mean().item()
